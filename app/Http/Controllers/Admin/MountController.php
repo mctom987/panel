@@ -9,10 +9,7 @@ use Pterodactyl\Models\Mount;
 use Pterodactyl\Models\Location;
 use Prologue\Alerts\AlertsMessageBag;
 use Pterodactyl\Http\Controllers\Controller;
-use Pterodactyl\Services\Mounts\MountUpdateService;
 use Pterodactyl\Http\Requests\Admin\MountFormRequest;
-use Pterodactyl\Services\Mounts\MountCreationService;
-use Pterodactyl\Services\Mounts\MountDeletionService;
 use Pterodactyl\Repositories\Eloquent\MountRepository;
 use Pterodactyl\Contracts\Repository\NestRepositoryInterface;
 use Pterodactyl\Contracts\Repository\LocationRepositoryInterface;
@@ -41,11 +38,6 @@ class MountController extends Controller
 
     /**
      * MountController constructor.
-     *
-     * @param \Prologue\Alerts\AlertsMessageBag $alert
-     * @param \Pterodactyl\Contracts\Repository\NestRepositoryInterface $nestRepository
-     * @param \Pterodactyl\Contracts\Repository\LocationRepositoryInterface $locationRepository
-     * @param \Pterodactyl\Repositories\Eloquent\MountRepository $repository
      */
     public function __construct(
         AlertsMessageBag $alert,
@@ -75,6 +67,7 @@ class MountController extends Controller
      * Return the mount view page.
      *
      * @param string $id
+     *
      * @return \Illuminate\View\View
      *
      * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
@@ -94,14 +87,12 @@ class MountController extends Controller
     /**
      * Handle request to create new mount.
      *
-     * @param \Pterodactyl\Http\Requests\Admin\MountFormRequest $request
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Throwable
      */
     public function create(MountFormRequest $request)
     {
-        /** @var \Pterodactyl\Models\Mount $mount */
         $model = (new Mount())->fill($request->validated());
         $model->forceFill(['uuid' => Uuid::uuid4()->toString()]);
 
@@ -116,8 +107,6 @@ class MountController extends Controller
     /**
      * Handle request to update or delete location.
      *
-     * @param \Pterodactyl\Http\Requests\Admin\MountFormRequest $request
-     * @param \Pterodactyl\Models\Mount $mount
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Throwable
@@ -138,7 +127,6 @@ class MountController extends Controller
     /**
      * Delete a location from the system.
      *
-     * @param \Pterodactyl\Models\Mount $mount
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Exception
@@ -153,8 +141,6 @@ class MountController extends Controller
     /**
      * Adds eggs to the mount's many to many relation.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Pterodactyl\Models\Mount $mount
      * @return \Illuminate\Http\RedirectResponse
      */
     public function addEggs(Request $request, Mount $mount)
@@ -176,8 +162,6 @@ class MountController extends Controller
     /**
      * Adds nodes to the mount's many to many relation.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Pterodactyl\Models\Mount $mount
      * @return \Illuminate\Http\RedirectResponse
      */
     public function addNodes(Request $request, Mount $mount)
@@ -197,8 +181,6 @@ class MountController extends Controller
     /**
      * Deletes an egg from the mount's many to many relation.
      *
-     * @param \Pterodactyl\Models\Mount $mount
-     * @param int $egg_id
      * @return \Illuminate\Http\Response
      */
     public function deleteEgg(Mount $mount, int $egg_id)
@@ -211,8 +193,6 @@ class MountController extends Controller
     /**
      * Deletes an node from the mount's many to many relation.
      *
-     * @param \Pterodactyl\Models\Mount $mount
-     * @param int $node_id
      * @return \Illuminate\Http\Response
      */
     public function deleteNode(Mount $mount, int $node_id)

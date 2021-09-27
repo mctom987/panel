@@ -2,6 +2,8 @@
 
 namespace Pterodactyl\Models;
 
+use Illuminate\Validation\Rules\NotIn;
+
 /**
  * @property int $id
  * @property string $uuid
@@ -11,7 +13,6 @@ namespace Pterodactyl\Models;
  * @property string $target
  * @property bool $read_only
  * @property bool $user_mountable
- *
  * @property \Pterodactyl\Models\Egg[]|\Illuminate\Database\Eloquent\Collection $eggs
  * @property \Pterodactyl\Models\Node[]|\Illuminate\Database\Eloquent\Collection $nodes
  * @property \Pterodactyl\Models\Server[]|\Illuminate\Database\Eloquent\Collection $servers
@@ -22,7 +23,7 @@ class Mount extends Model
      * The resource name for this model when it is transformed into an
      * API representation using fractal.
      */
-    const RESOURCE_NAME = 'mount';
+    public const RESOURCE_NAME = 'mount';
 
     /**
      * The table associated with the model.
@@ -64,11 +65,45 @@ class Mount extends Model
     ];
 
     /**
+     * Implement language verification by overriding Eloquence's gather
+     * rules function.
+     */
+    public static function getRules()
+    {
+        $rules = parent::getRules();
+
+        $rules['source'][] = new NotIn(Mount::$invalidSourcePaths);
+        $rules['target'][] = new NotIn(Mount::$invalidTargetPaths);
+
+        return $rules;
+    }
+
+    /**
      * Disable timestamps on this model.
      *
      * @var bool
      */
     public $timestamps = false;
+
+    /**
+     * Blacklisted source paths.
+     *
+     * @var string[]
+     */
+    public static $invalidSourcePaths = [
+        '/etc/pterodactyl',
+        '/var/lib/pterodactyl/volumes',
+        '/srv/daemon-data',
+    ];
+
+    /**
+     * Blacklisted target paths.
+     *
+     * @var string[]
+     */
+    public static $invalidTargetPaths = [
+        '/home/container',
+    ];
 
     /**
      * Returns all eggs that have this mount assigned.

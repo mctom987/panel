@@ -9,19 +9,22 @@ import FileNameModal from '@/components/server/files/FileNameModal';
 import Can from '@/components/elements/Can';
 import FlashMessageRender from '@/components/FlashMessageRender';
 import PageContentBlock from '@/components/elements/PageContentBlock';
-import ServerError from '@/components/screens/ServerError';
+import { ServerError } from '@/components/elements/ScreenBlock';
 import tw from 'twin.macro';
 import Button from '@/components/elements/Button';
 import Select from '@/components/elements/Select';
 import modes from '@/modes';
 import useFlash from '@/plugins/useFlash';
 import { ServerContext } from '@/state/server';
+import ErrorBoundary from '@/components/elements/ErrorBoundary';
+import { encodePathSegments, hashToPath } from '@/helpers';
+import { dirname } from 'path';
 
 const LazyCodemirrorEditor = lazy(() => import(/* webpackChunkName: "editor" */'@/components/elements/CodemirrorEditor'));
 
 export default () => {
     const [ error, setError ] = useState('');
-    const { action } = useParams();
+    const { action } = useParams<{ action: 'new' | string }>();
     const [ loading, setLoading ] = useState(action === 'edit');
     const [ content, setContent ] = useState('');
     const [ modalVisible, setModalVisible ] = useState(false);
@@ -32,6 +35,7 @@ export default () => {
 
     const id = ServerContext.useStoreState(state => state.server.data!.id);
     const uuid = ServerContext.useStoreState(state => state.server.data!.uuid);
+    const setDirectory = ServerContext.useStoreActions(actions => actions.files.setDirectory);
     const { addError, clearFlashes } = useFlash();
 
     let fetchFileContent: null | (() => Promise<string>) = null;
@@ -39,9 +43,11 @@ export default () => {
     useEffect(() => {
         if (action === 'new') return;
 
-        setLoading(true);
         setError('');
-        getFileContents(uuid, hash.replace(/^#/, ''))
+        setLoading(true);
+        const path = hashToPath(hash);
+        setDirectory(dirname(path));
+        getFileContents(uuid, path)
             .then(setContent)
             .catch(error => {
                 console.error(error);
@@ -58,12 +64,10 @@ export default () => {
         setLoading(true);
         clearFlashes('files:view');
         fetchFileContent()
-            .then(content => {
-                return saveFileContents(uuid, name || hash.replace(/^#/, ''), content);
-            })
+            .then(content => saveFileContents(uuid, name || hashToPath(hash), content))
             .then(() => {
                 if (name) {
-                    history.push(`/server/${id}/files/edit#/${name}`);
+                    history.push(`/server/${id}/files/edit#/${encodePathSegments(name)}`);
                     return;
                 }
 
@@ -85,7 +89,11 @@ export default () => {
     return (
         <PageContentBlock>
             <FlashMessageRender byKey={'files:view'} css={tw`mb-4`}/>
-            <FileManagerBreadcrumbs withinFileEditor isNewFile={action !== 'edit'}/>
+            <ErrorBoundary>
+                <div css={tw`mb-4`}>
+                    <FileManagerBreadcrumbs withinFileEditor isNewFile={action !== 'edit'}/>
+                </div>
+            </ErrorBoundary>
             {hash.replace(/^#/, '').endsWith('.pteroignore') &&
             <div css={tw`mb-4 p-4 border-l-4 bg-neutral-900 rounded border-cyan-400`}>
                 <p css={tw`text-neutral-300 text-sm`}>

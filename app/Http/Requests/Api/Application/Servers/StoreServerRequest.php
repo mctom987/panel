@@ -23,8 +23,6 @@ class StoreServerRequest extends ApplicationApiRequest
 
     /**
      * Rules to be applied to this request.
-     *
-     * @return array
      */
     public function rules(): array
     {
@@ -55,6 +53,7 @@ class StoreServerRequest extends ApplicationApiRequest
             'feature_limits' => 'required|array',
             'feature_limits.databases' => $rules['database_limit'],
             'feature_limits.allocations' => $rules['allocation_limit'],
+            'feature_limits.backups' => $rules['backup_limit'],
 
             // Placeholders for rules added in withValidator() function.
             'allocation.default' => '',
@@ -102,6 +101,7 @@ class StoreServerRequest extends ApplicationApiRequest
             'start_on_completion' => array_get($data, 'start_on_completion', false),
             'database_limit' => array_get($data, 'feature_limits.databases'),
             'allocation_limit' => array_get($data, 'feature_limits.allocations'),
+            'backup_limit' => array_get($data, 'feature_limits.backups'),
         ];
     }
 
@@ -118,7 +118,7 @@ class StoreServerRequest extends ApplicationApiRequest
                 $query->whereNull('server_id');
             }),
         ], function ($input) {
-            return ! ($input->deploy);
+            return !($input->deploy);
         });
 
         $validator->sometimes('allocation.additional.*', [
@@ -127,7 +127,7 @@ class StoreServerRequest extends ApplicationApiRequest
                 $query->whereNull('server_id');
             }),
         ], function ($input) {
-            return ! ($input->deploy);
+            return !($input->deploy);
         });
 
         $validator->sometimes('deploy.locations', 'present', function ($input) {
@@ -150,7 +150,7 @@ class StoreServerRequest extends ApplicationApiRequest
             return null;
         }
 
-        $object = new DeploymentObject;
+        $object = new DeploymentObject();
         $object->setDedicated($this->input('deploy.dedicated_ip', false));
         $object->setLocations($this->input('deploy.locations', []));
         $object->setPorts($this->input('deploy.port_range', []));

@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Spinner from '@/components/elements/Spinner';
 import tw from 'twin.macro';
 import styled, { css } from 'styled-components/macro';
 import { breakpoint } from '@/theme';
 import Fade from '@/components/elements/Fade';
+import { createPortal } from 'react-dom';
 
 export interface RequiredModalProps {
     visible: boolean;
@@ -109,7 +110,7 @@ const Modal: React.FC<ModalProps> = ({ visible, appear, dismissable, showSpinner
                     <Fade timeout={150} appear in>
                         <div
                             css={tw`absolute w-full h-full rounded flex items-center justify-center`}
-                            style={{ background: 'hsla(211, 10%, 53%, 0.25)' }}
+                            style={{ background: 'hsla(211, 10%, 53%, 0.35)', zIndex: 9999 }}
                         >
                             <Spinner/>
                         </div>
@@ -124,4 +125,10 @@ const Modal: React.FC<ModalProps> = ({ visible, appear, dismissable, showSpinner
     );
 };
 
-export default Modal;
+const PortaledModal: React.FC<ModalProps> = ({ children, ...props }) => {
+    const element = useRef(document.getElementById('modal-portal'));
+
+    return createPortal(<Modal {...props}>{children}</Modal>, element.current!);
+};
+
+export default PortaledModal;

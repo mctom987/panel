@@ -2,9 +2,8 @@
 
 namespace Pterodactyl\Services\Deployment;
 
-use Webmozart\Assert\Assert;
 use Pterodactyl\Models\Node;
-use Illuminate\Support\LazyCollection;
+use Webmozart\Assert\Assert;
 use Pterodactyl\Exceptions\Service\Deployment\NoViableNodeException;
 
 class FindViableNodesService
@@ -27,12 +26,11 @@ class FindViableNodesService
     /**
      * Set the locations that should be searched through to locate available nodes.
      *
-     * @param array $locations
      * @return $this
      */
     public function setLocations(array $locations): self
     {
-        Assert::allInteger($locations, 'An array of location IDs should be provided when calling setLocations.');
+        Assert::allIntegerish($locations, 'An array of location IDs should be provided when calling setLocations.');
 
         $this->locations = $locations;
 
@@ -44,7 +42,6 @@ class FindViableNodesService
      * filtered out if they do not have enough available free disk space for this server
      * to be placed on.
      *
-     * @param int $disk
      * @return $this
      */
     public function setDisk(int $disk): self
@@ -58,7 +55,6 @@ class FindViableNodesService
      * Set the amount of memory that this server will be using. As with disk space, nodes that
      * do not have enough free memory will be filtered out.
      *
-     * @param int $memory
      * @return $this
      */
     public function setMemory(int $memory): self
@@ -78,10 +74,16 @@ class FindViableNodesService
      * are tossed out, as are any nodes marked as non-public, meaning automatic
      * deployments should not be done against them.
      *
-     * @return \Pterodactyl\Models\Node[]|\Illuminate\Support\Collection
+     * @param int|null $page If provided the results will be paginated by returning
+     *                       up to 50 nodes at a time starting at the provided page.
+     *                       If "null" is provided as the value no pagination will
+     *                       be used.
+     *
+     * @return \Illuminate\Support\Collection|\Illuminate\Contracts\Pagination\LengthAwarePaginator
+     *
      * @throws \Pterodactyl\Exceptions\Service\Deployment\NoViableNodeException
      */
-    public function handle()
+    public function handle(int $perPage = null, int $page = null)
     {
         Assert::integer($this->disk, 'Disk space must be an int, got %s');
         Assert::integer($this->memory, 'Memory usage must be an int, got %s');
@@ -92,15 +94,19 @@ class FindViableNodesService
             ->leftJoin('servers', 'servers.node_id', '=', 'nodes.id')
             ->where('nodes.public', 1);
 
-        if (! empty($this->locations)) {
+        if (!empty($this->locations)) {
             $query = $query->whereIn('nodes.location_id', $this->locations);
         }
 
         $results = $query->groupBy('nodes.id')
-            ->havingRaw('(IFNULL(SUM(servers.memory), 0) + ?) <= (nodes.memory * (1 + (nodes.memory_overallocate / 100)))', [ $this->memory ])
-            ->havingRaw('(IFNULL(SUM(servers.disk), 0) + ?) <= (nodes.disk * (1 + (nodes.disk_overallocate / 100)))', [ $this->disk ])
-            ->get()
-            ->toBase();
+            ->havingRaw('(IFNULL(SUM(servers.memory), 0) + ?) <= (nodes.memory * (1 + (nodes.memory_overallocate / 100)))', [$this->memory])
+            ->havingRaw('(IFNULL(SUM(servers.disk), 0) + ?) <= (nodes.disk * (1 + (nodes.disk_overallocate / 100)))', [$this->disk]);
+
+        if (!is_null($page)) {
+            $results = $results->paginate($perPage ?? 50, ['*'], 'page', $page);
+        } else {
+            $results = $results->get()->toBase();
+        }
 
         if ($results->isEmpty()) {
             throw new NoViableNodeException(trans('exceptions.deployment.no_viable_nodes'));

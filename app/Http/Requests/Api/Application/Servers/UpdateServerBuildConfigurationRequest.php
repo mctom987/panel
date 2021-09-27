@@ -9,8 +9,6 @@ class UpdateServerBuildConfigurationRequest extends ServerWriteRequest
 {
     /**
      * Return the rules to validate this request against.
-     *
-     * @return array
      */
     public function rules(): array
     {
@@ -47,6 +45,7 @@ class UpdateServerBuildConfigurationRequest extends ServerWriteRequest
             'feature_limits' => 'required|array',
             'feature_limits.databases' => $rules['database_limit'],
             'feature_limits.allocations' => $rules['allocation_limit'],
+            'feature_limits.backups' => $rules['backup_limit'],
         ];
     }
 
@@ -60,12 +59,13 @@ class UpdateServerBuildConfigurationRequest extends ServerWriteRequest
         $data = parent::validated();
 
         $data['allocation_id'] = $data['allocation'];
-        $data['database_limit'] = $data['feature_limits']['databases'];
-        $data['allocation_limit'] = $data['feature_limits']['allocations'];
+        $data['database_limit'] = $data['feature_limits']['databases'] ?? null;
+        $data['allocation_limit'] = $data['feature_limits']['allocations'] ?? null;
+        $data['backup_limit'] = $data['feature_limits']['backups'] ?? null;
         unset($data['allocation'], $data['feature_limits']);
 
         // Adjust the limits field to match what is expected by the model.
-        if (! empty($data['limits'])) {
+        if (!empty($data['limits'])) {
             foreach ($data['limits'] as $key => $value) {
                 $data[$key] = $value;
             }
@@ -90,6 +90,7 @@ class UpdateServerBuildConfigurationRequest extends ServerWriteRequest
             'remove_allocations.*' => 'allocation to remove',
             'feature_limits.databases' => 'Database Limit',
             'feature_limits.allocations' => 'Allocation Limit',
+            'feature_limits.backups' => 'Backup Limit',
         ];
     }
 
@@ -98,16 +99,13 @@ class UpdateServerBuildConfigurationRequest extends ServerWriteRequest
      * compatability with the old API endpoint while also supporting a more correct API
      * call.
      *
-     * @param string $field
-     * @param array $rules
-     * @param bool $limits
      * @return array
      *
      * @see https://github.com/pterodactyl/panel/issues/1500
      */
     protected function requiredToOptional(string $field, array $rules, bool $limits = false)
     {
-        if (! in_array('required', $rules)) {
+        if (!in_array('required', $rules)) {
             return $rules;
         }
 

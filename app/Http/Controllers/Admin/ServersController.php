@@ -9,13 +9,12 @@
 
 namespace Pterodactyl\Http\Controllers\Admin;
 
-use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
 use Pterodactyl\Models\User;
 use Pterodactyl\Models\Mount;
 use Pterodactyl\Models\Server;
+use Pterodactyl\Models\MountServer;
 use Prologue\Alerts\AlertsMessageBag;
-use GuzzleHttp\Exception\RequestException;
 use Pterodactyl\Exceptions\DisplayException;
 use Pterodactyl\Http\Controllers\Controller;
 use Illuminate\Validation\ValidationException;
@@ -36,7 +35,6 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Pterodactyl\Contracts\Repository\ServerRepositoryInterface;
 use Pterodactyl\Contracts\Repository\DatabaseRepositoryInterface;
 use Pterodactyl\Contracts\Repository\AllocationRepositoryInterface;
-use Pterodactyl\Exceptions\Http\Connection\DaemonConnectionException;
 use Pterodactyl\Services\Servers\ServerConfigurationStructureService;
 use Pterodactyl\Http\Requests\Admin\Servers\Databases\StoreServerDatabaseRequest;
 
@@ -134,25 +132,6 @@ class ServersController extends Controller
 
     /**
      * ServersController constructor.
-     *
-     * @param \Prologue\Alerts\AlertsMessageBag $alert
-     * @param \Pterodactyl\Contracts\Repository\AllocationRepositoryInterface $allocationRepository
-     * @param \Pterodactyl\Services\Servers\BuildModificationService $buildModificationService
-     * @param \Illuminate\Contracts\Config\Repository $config
-     * @param \Pterodactyl\Repositories\Wings\DaemonServerRepository $daemonServerRepository
-     * @param \Pterodactyl\Services\Databases\DatabaseManagementService $databaseManagementService
-     * @param \Pterodactyl\Services\Databases\DatabasePasswordService $databasePasswordService
-     * @param \Pterodactyl\Contracts\Repository\DatabaseRepositoryInterface $databaseRepository
-     * @param \Pterodactyl\Repositories\Eloquent\DatabaseHostRepository $databaseHostRepository
-     * @param \Pterodactyl\Services\Servers\ServerDeletionService $deletionService
-     * @param \Pterodactyl\Services\Servers\DetailsModificationService $detailsModificationService
-     * @param \Pterodactyl\Services\Servers\ReinstallServerService $reinstallService
-     * @param \Pterodactyl\Contracts\Repository\ServerRepositoryInterface $repository
-     * @param \Pterodactyl\Repositories\Eloquent\MountRepository $mountRepository
-     * @param \Pterodactyl\Contracts\Repository\NestRepositoryInterface $nestRepository
-     * @param \Pterodactyl\Services\Servers\ServerConfigurationStructureService $serverConfigurationStructureService
-     * @param \Pterodactyl\Services\Servers\StartupModificationService $startupModificationService
-     * @param \Pterodactyl\Services\Servers\SuspensionService $suspensionService
      */
     public function __construct(
         AlertsMessageBag $alert,
@@ -197,8 +176,6 @@ class ServersController extends Controller
     /**
      * Update the details for a server.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Pterodactyl\Exceptions\Model\DataValidationException
@@ -218,7 +195,6 @@ class ServersController extends Controller
     /**
      * Toggles the install status for a server.
      *
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Pterodactyl\Exceptions\DisplayException
@@ -227,12 +203,12 @@ class ServersController extends Controller
      */
     public function toggleInstall(Server $server)
     {
-        if ($server->installed > 1) {
+        if ($server->status === Server::STATUS_INSTALL_FAILED) {
             throw new DisplayException(trans('admin/server.exceptions.marked_as_failed'));
         }
 
         $this->repository->update($server->id, [
-            'installed' => ! $server->installed,
+            'status' => $server->isInstalled() ? Server::STATUS_INSTALLING : null,
         ], true, true);
 
         $this->alert->success(trans('admin/server.alerts.install_toggled'))->flash();
@@ -243,7 +219,6 @@ class ServersController extends Controller
     /**
      * Reinstalls the server with the currently assigned service.
      *
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Pterodactyl\Exceptions\DisplayException
@@ -261,8 +236,6 @@ class ServersController extends Controller
     /**
      * Manage the suspension status for a server.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Pterodactyl\Exceptions\DisplayException
@@ -282,8 +255,6 @@ class ServersController extends Controller
     /**
      * Update the build configuration for a server.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Pterodactyl\Exceptions\DisplayException
@@ -310,8 +281,6 @@ class ServersController extends Controller
     /**
      * Start the server deletion process.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Pterodactyl\Exceptions\DisplayException
@@ -328,19 +297,22 @@ class ServersController extends Controller
     /**
      * Update the startup command as well as variables.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Illuminate\Validation\ValidationException
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
      */
     public function saveStartup(Request $request, Server $server)
     {
+        $data = $request->except('_token');
+        if (!empty($data['custom_docker_image'])) {
+            $data['docker_image'] = $data['custom_docker_image'];
+            unset($data['custom_docker_image']);
+        }
+
         try {
             $this->startupModificationService
                 ->setUserLevel(User::USER_LEVEL_ADMIN)
-                ->handle($server, $request->except('_token'));
+                ->handle($server, $data);
         } catch (DataValidationException $exception) {
             throw new ValidationException($exception->validator);
         }
@@ -353,8 +325,6 @@ class ServersController extends Controller
     /**
      * Creates a new database assigned to a specific server.
      *
-     * @param \Pterodactyl\Http\Requests\Admin\Servers\Databases\StoreServerDatabaseRequest $request
-     * @param \Pterodactyl\Models\Server $server
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Throwable
@@ -374,8 +344,8 @@ class ServersController extends Controller
     /**
      * Resets the database password for a specific database on this server.
      *
-     * @param \Illuminate\Http\Request $request
      * @param int $server
+     *
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Throwable
@@ -397,6 +367,7 @@ class ServersController extends Controller
      *
      * @param int $server
      * @param int $database
+     *
      * @return \Illuminate\Http\RedirectResponse
      *
      * @throws \Exception
@@ -417,29 +388,18 @@ class ServersController extends Controller
     /**
      * Add a mount to a server.
      *
-     * @param Server $server
-     * @param \Pterodactyl\Models\Mount $mount
      * @return \Illuminate\Http\RedirectResponse
      *
-     * @throws \Pterodactyl\Exceptions\Http\Connection\DaemonConnectionException
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
+     * @throws \Throwable
      */
     public function addMount(Server $server, Mount $mount)
     {
-        $server->mounts()->updateOrCreate([
+        $mountServer = (new MountServer())->forceFill([
             'mount_id' => $mount->id,
             'server_id' => $server->id,
         ]);
 
-        $data = $this->serverConfigurationStructureService->handle($server);
-
-        try {
-            $this->daemonServerRepository
-                ->setServer($server)
-                ->update(Arr::only($data, ['mounts']));
-        } catch (RequestException $exception) {
-            throw new DaemonConnectionException($exception);
-        }
+        $mountServer->saveOrFail();
 
         $this->alert->success('Mount was added successfully.')->flash();
 
@@ -449,29 +409,11 @@ class ServersController extends Controller
     /**
      * Remove a mount from a server.
      *
-     * @param Server $server
-     * @param \Pterodactyl\Models\Mount $mount
      * @return \Illuminate\Http\RedirectResponse
-     *
-     * @throws \Pterodactyl\Exceptions\Http\Connection\DaemonConnectionException
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
      */
     public function deleteMount(Server $server, Mount $mount)
     {
-        $server->mounts()
-            ->where('mount_id', $mount->id)
-            ->where('server_id', $server->id)
-            ->delete();
-
-        $data = $this->serverConfigurationStructureService->handle($server);
-
-        try {
-            $this->daemonServerRepository
-                ->setServer($server)
-                ->update(Arr::only($data, ['mounts']));
-        } catch (RequestException $exception) {
-            throw new DaemonConnectionException($exception);
-        }
+        MountServer::where('mount_id', $mount->id)->where('server_id', $server->id)->delete();
 
         $this->alert->success('Mount was removed successfully.')->flash();
 

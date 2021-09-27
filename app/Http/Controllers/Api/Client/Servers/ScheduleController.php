@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Pterodactyl\Helpers\Utilities;
 use Pterodactyl\Exceptions\DisplayException;
 use Pterodactyl\Repositories\Eloquent\ScheduleRepository;
+use Pterodactyl\Services\Schedules\ProcessScheduleService;
 use Pterodactyl\Transformers\Api\Client\ScheduleTransformer;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -19,6 +20,7 @@ use Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\ViewScheduleRequest;
 use Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\StoreScheduleRequest;
 use Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\DeleteScheduleRequest;
 use Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\UpdateScheduleRequest;
+use Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\TriggerScheduleRequest;
 
 class ScheduleController extends ClientApiController
 {
@@ -28,22 +30,24 @@ class ScheduleController extends ClientApiController
     private $repository;
 
     /**
-     * ScheduleController constructor.
-     *
-     * @param \Pterodactyl\Repositories\Eloquent\ScheduleRepository $repository
+     * @var \Pterodactyl\Services\Schedules\ProcessScheduleService
      */
-    public function __construct(ScheduleRepository $repository)
+    private $service;
+
+    /**
+     * ScheduleController constructor.
+     */
+    public function __construct(ScheduleRepository $repository, ProcessScheduleService $service)
     {
         parent::__construct();
 
         $this->repository = $repository;
+        $this->service = $service;
     }
 
     /**
      * Returns all of the schedules belonging to a given server.
      *
-     * @param \Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\ViewScheduleRequest $request
-     * @param \Pterodactyl\Models\Server $server
      * @return array
      */
     public function index(ViewScheduleRequest $request, Server $server)
@@ -59,8 +63,6 @@ class ScheduleController extends ClientApiController
     /**
      * Store a new schedule for a server.
      *
-     * @param \Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\StoreScheduleRequest $request
-     * @param \Pterodactyl\Models\Server $server
      * @return array
      *
      * @throws \Pterodactyl\Exceptions\DisplayException
@@ -73,10 +75,12 @@ class ScheduleController extends ClientApiController
             'server_id' => $server->id,
             'name' => $request->input('name'),
             'cron_day_of_week' => $request->input('day_of_week'),
+            'cron_month' => $request->input('month'),
             'cron_day_of_month' => $request->input('day_of_month'),
             'cron_hour' => $request->input('hour'),
             'cron_minute' => $request->input('minute'),
             'is_active' => (bool) $request->input('is_active'),
+            'only_when_online' => (bool) $request->input('only_when_online'),
             'next_run_at' => $this->getNextRunAt($request),
         ]);
 
@@ -88,15 +92,12 @@ class ScheduleController extends ClientApiController
     /**
      * Returns a specific schedule for the server.
      *
-     * @param \Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\ViewScheduleRequest $request
-     * @param \Pterodactyl\Models\Server $server
-     * @param \Pterodactyl\Models\Schedule $schedule
      * @return array
      */
     public function view(ViewScheduleRequest $request, Server $server, Schedule $schedule)
     {
         if ($schedule->server_id !== $server->id) {
-            throw new NotFoundHttpException;
+            throw new NotFoundHttpException();
         }
 
         $schedule->loadMissing('tasks');
@@ -109,9 +110,6 @@ class ScheduleController extends ClientApiController
     /**
      * Updates a given schedule with the new data provided.
      *
-     * @param \Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\UpdateScheduleRequest $request
-     * @param \Pterodactyl\Models\Server $server
-     * @param \Pterodactyl\Models\Schedule $schedule
      * @return array
      *
      * @throws \Pterodactyl\Exceptions\DisplayException
@@ -125,10 +123,12 @@ class ScheduleController extends ClientApiController
         $data = [
             'name' => $request->input('name'),
             'cron_day_of_week' => $request->input('day_of_week'),
+            'cron_month' => $request->input('month'),
             'cron_day_of_month' => $request->input('day_of_month'),
             'cron_hour' => $request->input('hour'),
             'cron_minute' => $request->input('minute'),
             'is_active' => $active,
+            'only_when_online' => (bool) $request->input('only_when_online'),
             'next_run_at' => $this->getNextRunAt($request),
         ];
 
@@ -148,11 +148,23 @@ class ScheduleController extends ClientApiController
     }
 
     /**
+     * Executes a given schedule immediately rather than waiting on it's normally scheduled time
+     * to pass. This does not care about the schedule state.
+     *
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Throwable
+     */
+    public function execute(TriggerScheduleRequest $request, Server $server, Schedule $schedule)
+    {
+        $this->service->handle($schedule, true);
+
+        return new JsonResponse([], JsonResponse::HTTP_ACCEPTED);
+    }
+
+    /**
      * Deletes a schedule and it's associated tasks.
      *
-     * @param \Pterodactyl\Http\Requests\Api\Client\Servers\Schedules\DeleteScheduleRequest $request
-     * @param \Pterodactyl\Models\Server $server
-     * @param \Pterodactyl\Models\Schedule $schedule
      * @return \Illuminate\Http\JsonResponse
      */
     public function delete(DeleteScheduleRequest $request, Server $server, Schedule $schedule)
@@ -165,8 +177,6 @@ class ScheduleController extends ClientApiController
     /**
      * Get the next run timestamp based on the cron data provided.
      *
-     * @param \Illuminate\Http\Request $request
-     * @return \Carbon\Carbon
      * @throws \Pterodactyl\Exceptions\DisplayException
      */
     protected function getNextRunAt(Request $request): Carbon
@@ -176,12 +186,11 @@ class ScheduleController extends ClientApiController
                 $request->input('minute'),
                 $request->input('hour'),
                 $request->input('day_of_month'),
+                $request->input('month'),
                 $request->input('day_of_week')
             );
         } catch (Exception $exception) {
-            throw new DisplayException(
-                'The cron data provided does not evaluate to a valid expression.'
-            );
+            throw new DisplayException('The cron data provided does not evaluate to a valid expression.');
         }
     }
 }
